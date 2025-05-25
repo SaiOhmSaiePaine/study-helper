@@ -53,15 +53,36 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
 
     try {
       const data = await response.json();
-      error.message = data.message || error.message;
-    } catch {
-      // Use default error message if response is not JSON
+      error.message = data.detail || data.message || error.message;
+    } catch (e) {
+      console.error('Error parsing error response:', e);
     }
 
     throw error;
   }
 
-  return response.json();
+  try {
+    return await response.json();
+  } catch (e) {
+    console.error('Error parsing success response:', e);
+    throw new Error('Invalid response format from server');
+  }
+};
+
+const handleRequest = async <T>(
+  url: string,
+  options: RequestInit,
+  errorContext: string
+): Promise<T> => {
+  try {
+    console.log(`Making request to ${url}`, { options });
+    const response = await fetch(url, options);
+    console.log(`Received response from ${url}`, { status: response.status });
+    return await handleResponse<T>(response);
+  } catch (error) {
+    console.error(`Error in ${errorContext}:`, error);
+    throw error;
+  }
 };
 
 export const api = {
@@ -69,55 +90,65 @@ export const api = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${API_BASE_URL}/process-document`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: formData,
-    });
-
-    const data = await handleResponse<DocumentResponse>(response);
+    const data = await handleRequest<DocumentResponse>(
+      `${API_BASE_URL}/process-document`,
+      {
+        method: 'POST',
+        headers: getHeaders(),
+        body: formData,
+      },
+      'processDocument'
+    );
     return data.text;
   },
 
   async generateNotes(text: string): Promise<string> {
-    const response = await fetch(`${API_BASE_URL}/generate-notes`, {
-      method: 'POST',
-      headers: getHeaders('application/json'),
-      body: JSON.stringify({ text }),
-    });
-
-    const data = await handleResponse<NotesResponse>(response);
+    const data = await handleRequest<NotesResponse>(
+      `${API_BASE_URL}/generate-notes`,
+      {
+        method: 'POST',
+        headers: getHeaders('application/json'),
+        body: JSON.stringify({ text }),
+      },
+      'generateNotes'
+    );
     return data.summary;
   },
 
   async generateFlashcards(text: string, numCards: number = 5): Promise<FlashCard[]> {
-    const response = await fetch(`${API_BASE_URL}/generate-flashcards?num_cards=${numCards}`, {
-      method: 'POST',
-      headers: getHeaders('application/json'),
-      body: JSON.stringify({ text }),
-    });
-
-    return handleResponse<FlashCard[]>(response);
+    return handleRequest<FlashCard[]>(
+      `${API_BASE_URL}/generate-flashcards?num_cards=${numCards}`,
+      {
+        method: 'POST',
+        headers: getHeaders('application/json'),
+        body: JSON.stringify({ text }),
+      },
+      'generateFlashcards'
+    );
   },
 
   async generateQuiz(text: string, numQuestions: number = 5): Promise<QuizQuestion[]> {
-    const response = await fetch(`${API_BASE_URL}/generate-quiz?num_questions=${numQuestions}`, {
-      method: 'POST',
-      headers: getHeaders('application/json'),
-      body: JSON.stringify({ text }),
-    });
-
-    return handleResponse<QuizQuestion[]>(response);
+    return handleRequest<QuizQuestion[]>(
+      `${API_BASE_URL}/generate-quiz?num_questions=${numQuestions}`,
+      {
+        method: 'POST',
+        headers: getHeaders('application/json'),
+        body: JSON.stringify({ text }),
+      },
+      'generateQuiz'
+    );
   },
 
   async askQuestion(text: string, question: string): Promise<string> {
-    const response = await fetch(`${API_BASE_URL}/ask-question`, {
-      method: 'POST',
-      headers: getHeaders('application/json'),
-      body: JSON.stringify({ text, question }),
-    });
-
-    const data = await handleResponse<AnswerResponse>(response);
+    const data = await handleRequest<AnswerResponse>(
+      `${API_BASE_URL}/ask-question`,
+      {
+        method: 'POST',
+        headers: getHeaders('application/json'),
+        body: JSON.stringify({ text, question }),
+      },
+      'askQuestion'
+    );
     return data.answer;
   },
 }; 

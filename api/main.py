@@ -18,12 +18,14 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
+        "http://localhost:3004",
         "http://localhost:3005",
         "https://study-helper.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Request/Response Models
@@ -129,4 +131,4 @@ async def ask_question(
     answer = await ai_processor.answer_question(request.text, request.question)
     return {"answer": answer} 
 
-# hi
+# hi Sai Ohm Saie Paine
