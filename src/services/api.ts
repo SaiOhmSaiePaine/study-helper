@@ -1,5 +1,10 @@
 const API_BASE_URL = 'http://localhost:8000/api';
 
+export interface APIError {
+  message: string;
+  status: number;
+}
+
 export interface FlashCard {
   question: string;
   answer: string;
@@ -11,6 +16,38 @@ export interface QuizQuestion {
   correct_answer: number;
 }
 
+interface DocumentResponse {
+  text: string;
+}
+
+interface NotesResponse {
+  summary: string;
+}
+
+interface AnswerResponse {
+  answer: string;
+}
+
+const handleResponse = async <T>(response: Response): Promise<T> => {
+  if (!response.ok) {
+    const error: APIError = {
+      message: 'An error occurred while processing your request',
+      status: response.status,
+    };
+
+    try {
+      const data = await response.json();
+      error.message = data.message || error.message;
+    } catch {
+      // Use default error message if response is not JSON
+    }
+
+    throw error;
+  }
+
+  return response.json();
+};
+
 export const api = {
   async processDocument(file: File): Promise<string> {
     const formData = new FormData();
@@ -21,11 +58,7 @@ export const api = {
       body: formData,
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to process document');
-    }
-
-    const data = await response.json();
+    const data = await handleResponse<DocumentResponse>(response);
     return data.text;
   },
 
@@ -38,11 +71,7 @@ export const api = {
       body: JSON.stringify({ text }),
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to generate notes');
-    }
-
-    const data = await response.json();
+    const data = await handleResponse<NotesResponse>(response);
     return data.summary;
   },
 
@@ -55,11 +84,7 @@ export const api = {
       body: JSON.stringify({ text }),
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to generate flashcards');
-    }
-
-    return response.json();
+    return handleResponse<FlashCard[]>(response);
   },
 
   async generateQuiz(text: string, numQuestions: number = 5): Promise<QuizQuestion[]> {
@@ -71,11 +96,7 @@ export const api = {
       body: JSON.stringify({ text }),
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to generate quiz');
-    }
-
-    return response.json();
+    return handleResponse<QuizQuestion[]>(response);
   },
 
   async askQuestion(text: string, question: string): Promise<string> {
@@ -87,11 +108,7 @@ export const api = {
       body: JSON.stringify({ text, question }),
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to get answer');
-    }
-
-    const data = await response.json();
+    const data = await handleResponse<AnswerResponse>(response);
     return data.answer;
   },
 }; 

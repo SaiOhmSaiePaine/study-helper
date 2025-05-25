@@ -1,84 +1,134 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
+import 'react-pdf/dist/esm/Page/TextLayer.css';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+// Initialize PDF.js worker only on client side
+if (typeof window !== 'undefined') {
+  pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+}
 
 interface PDFViewerProps {
   file: File | null;
   onContentExtracted: (content: string) => void;
 }
 
+type PDFDocumentLoadSuccess = {
+  numPages: number;
+  getPage: (pageNumber: number) => Promise<any>;
+};
+
+const ZOOM_STEP = 0.1;
+const MIN_SCALE = 0.5;
+const INITIAL_SCALE = 1.0;
+
 export default function PDFViewer({ file, onContentExtracted }: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
-  const [scale, setScale] = useState(1.0);
+  const [scale, setScale] = useState(INITIAL_SCALE);
+  const [error, setError] = useState<string | null>(null);
 
-  function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
+  const handleDocumentLoadSuccess = useCallback(async ({ numPages, getPage }: PDFDocumentLoadSuccess) => {
     setNumPages(numPages);
-    // TODO: Implement text extraction and pass to parent
-    onContentExtracted("Sample extracted content");
-  }
+    try {
+      // Extract text from the first page as a sample
+      const page = await getPage(1);
+      const textContent = await page.getTextContent();
+      const text = textContent.items.map((item: any) => item.str).join(' ');
+      onContentExtracted(text);
+    } catch (err) {
+      setError('Failed to extract text content');
+      console.error('Text extraction error:', err);
+    }
+  }, [onContentExtracted]);
 
-  const nextPage = () => {
+  const handleNextPage = useCallback(() => {
     if (pageNumber < (numPages || 1)) {
-      setPageNumber(pageNumber + 1);
+      setPageNumber(prev => prev + 1);
     }
-  };
+  }, [pageNumber, numPages]);
 
-  const previousPage = () => {
+  const handlePreviousPage = useCallback(() => {
     if (pageNumber > 1) {
-      setPageNumber(pageNumber - 1);
+      setPageNumber(prev => prev - 1);
     }
-  };
+  }, [pageNumber]);
 
-  const zoomIn = () => {
-    setScale(scale + 0.1);
-  };
+  const handleZoomIn = useCallback(() => {
+    setScale(prev => prev + ZOOM_STEP);
+  }, []);
 
-  const zoomOut = () => {
-    if (scale > 0.5) {
-      setScale(scale - 0.1);
+  const handleZoomOut = useCallback(() => {
+    setScale(prev => Math.max(MIN_SCALE, prev - ZOOM_STEP));
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    switch (e.key) {
+      case 'ArrowRight':
+        handleNextPage();
+        break;
+      case 'ArrowLeft':
+        handlePreviousPage();
+        break;
+      case '+':
+        handleZoomIn();
+        break;
+      case '-':
+        handleZoomOut();
+        break;
     }
-  };
+  }, [handleNextPage, handlePreviousPage, handleZoomIn, handleZoomOut]);
 
   if (!file) {
     return null;
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div 
+      className="h-full flex flex-col"
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      role="application"
+      aria-label="PDF Viewer"
+    >
       <div className="flex justify-between items-center p-4 border-b">
         <div className="flex items-center space-x-4">
           <button
-            onClick={previousPage}
+            onClick={handlePreviousPage}
             disabled={pageNumber <= 1}
-            className="p-1 rounded-full hover:bg-gray-100 disabled:opacity-50"
+            className="p-1 rounded-full hover:bg-gray-100 disabled:opacity-50 focus:ring-2 focus:ring-blue-500"
+            aria-label="Previous page"
           >
             <ChevronLeftIcon className="w-5 h-5" />
           </button>
-          <span className="text-sm">
+          <span className="text-sm" role="status" aria-live="polite">
             Page {pageNumber} of {numPages || '--'}
           </span>
           <button
-            onClick={nextPage}
+            onClick={handleNextPage}
             disabled={pageNumber >= (numPages || 1)}
-            className="p-1 rounded-full hover:bg-gray-100 disabled:opacity-50"
+            className="p-1 rounded-full hover:bg-gray-100 disabled:opacity-50 focus:ring-2 focus:ring-blue-500"
+            aria-label="Next page"
           >
             <ChevronRightIcon className="w-5 h-5" />
           </button>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2" role="group" aria-label="Zoom controls">
           <button
-            onClick={zoomOut}
-            className="px-2 py-1 text-sm border rounded hover:bg-gray-50"
+            onClick={handleZoomOut}
+            className="px-2 py-1 text-sm border rounded hover:bg-gray-50 focus:ring-2 focus:ring-blue-500"
+            aria-label="Zoom out"
           >
             -
           </button>
-          <span className="text-sm">{Math.round(scale * 100)}%</span>
+          <span className="text-sm" role="status" aria-live="polite">
+            {Math.round(scale * 100)}%
+          </span>
           <button
-            onClick={zoomIn}
-            className="px-2 py-1 text-sm border rounded hover:bg-gray-50"
+            onClick={handleZoomIn}
+            className="px-2 py-1 text-sm border rounded hover:bg-gray-50 focus:ring-2 focus:ring-blue-500"
+            aria-label="Zoom in"
           >
             +
           </button>
@@ -86,9 +136,15 @@ export default function PDFViewer({ file, onContentExtracted }: PDFViewerProps) 
       </div>
 
       <div className="flex-1 overflow-auto flex justify-center p-4">
+        {error && (
+          <div className="text-red-500" role="alert">
+            {error}
+          </div>
+        )}
         <Document
           file={file}
-          onLoadSuccess={onDocumentLoadSuccess}
+          onLoadSuccess={handleDocumentLoadSuccess}
+          onLoadError={() => setError('Failed to load PDF')}
           className="max-w-full"
         >
           <Page
@@ -97,6 +153,11 @@ export default function PDFViewer({ file, onContentExtracted }: PDFViewerProps) 
             className="shadow-lg"
             renderTextLayer={true}
             renderAnnotationLayer={true}
+            error={
+              <div className="text-red-500" role="alert">
+                Failed to load page {pageNumber}
+              </div>
+            }
           />
         </Document>
       </div>
