@@ -1,4 +1,20 @@
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = 'http://localhost:3001/api';
+
+// Get API key from environment variable
+const API_KEY = process.env.NEXT_PUBLIC_OPENROUTER_API_KEY;
+
+// Common headers for all requests
+const getHeaders = (contentType?: string) => {
+  const headers: Record<string, string> = {
+    'X-API-Key': API_KEY || '',
+  };
+  
+  if (contentType) {
+    headers['Content-Type'] = contentType;
+  }
+  
+  return headers;
+};
 
 export interface APIError {
   message: string;
@@ -55,6 +71,7 @@ export const api = {
 
     const response = await fetch(`${API_BASE_URL}/process-document`, {
       method: 'POST',
+      headers: getHeaders(),
       body: formData,
     });
 
@@ -65,9 +82,7 @@ export const api = {
   async generateNotes(text: string): Promise<string> {
     const response = await fetch(`${API_BASE_URL}/generate-notes`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getHeaders('application/json'),
       body: JSON.stringify({ text }),
     });
 
@@ -78,9 +93,7 @@ export const api = {
   async generateFlashcards(text: string, numCards: number = 5): Promise<FlashCard[]> {
     const response = await fetch(`${API_BASE_URL}/generate-flashcards?num_cards=${numCards}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getHeaders('application/json'),
       body: JSON.stringify({ text }),
     });
 
@@ -90,9 +103,7 @@ export const api = {
   async generateQuiz(text: string, numQuestions: number = 5): Promise<QuizQuestion[]> {
     const response = await fetch(`${API_BASE_URL}/generate-quiz?num_questions=${numQuestions}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getHeaders('application/json'),
       body: JSON.stringify({ text }),
     });
 
@@ -102,9 +113,7 @@ export const api = {
   async askQuestion(text: string, question: string): Promise<string> {
     const response = await fetch(`${API_BASE_URL}/ask-question`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getHeaders('application/json'),
       body: JSON.stringify({ text, question }),
     });
 
