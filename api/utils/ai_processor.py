@@ -1,122 +1,196 @@
-from typing import List, Dict
+from typing import List, Dict, Optional, TypedDict, Literal
 import re
-from transformers import pipeline
+import httpx
+import json
+from fastapi import HTTPException
+from pydantic import BaseModel, Field
+
+class Message(TypedDict):
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+class OpenRouterResponse(BaseModel):
+    choices: List[Dict[str, Dict[str, str]]]
+
+class FlashCard(BaseModel):
+    question: str
+    answer: str
+
+class QuizQuestion(BaseModel):
+    question: str
+    options: List[str]
+    correct_answer: int
 
 class AIProcessor:
-    def __init__(self):
-        # Initialize models
-        self.summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
-        self.qa_model = pipeline("question-answering", model="deepset/roberta-base-squad2")
+    def __init__(self, api_key: Optional[str] = None):
+        """Initialize the AI processor with OpenRouter API key"""
+        self.api_key = api_key
+        self.base_url = "https://openrouter.ai/api/v1"
+        self.http_client = httpx.AsyncClient(timeout=30.0)  # Reuse HTTP client
         
-    def generate_summary(self, text: str, max_length: int = 130, min_length: int = 30) -> str:
-        """Generate a summary of the given text"""
+    async def __aenter__(self):
+        return self
+        
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.http_client.aclose()
+        
+    async def _make_request(
+        self,
+        messages: List[Message],
+        max_tokens: int = 500,
+        temperature: float = 0.7
+    ) -> str:
+        """Make a request to OpenRouter API with proper error handling"""
+        if not self.api_key:
+            raise HTTPException(
+                status_code=401,
+                detail="OpenRouter API key is required"
+            )
+            
         try:
-            # Split text into chunks if it's too long
-            chunks = self._split_text(text, max_length=1024)
-            summaries = []
+            response = await self.http_client.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "HTTP-Referer": "https://study-helper.vercel.app",
+                    "X-Title": "Study Helper"
+                },
+                json={
+                    "model": "mistralai/mistral-7b-instruct",
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature
+                },
+                timeout=30.0
+            )
             
-            for chunk in chunks:
-                summary = self.summarizer(chunk, max_length=max_length, min_length=min_length, do_sample=False)
-                summaries.append(summary[0]["summary_text"])
+            response.raise_for_status()
+            data = OpenRouterResponse.parse_obj(response.json())
+            return data.choices[0]["message"]["content"]
             
-            return " ".join(summaries)
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=f"OpenRouter API error: {e.response.text}"
+            )
+        except httpx.RequestError as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Error connecting to OpenRouter API: {str(e)}"
+            )
         except Exception as e:
-            raise Exception(f"Error generating summary: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error: {str(e)}"
+            )
 
-    def generate_flashcards(self, text: str, num_cards: int = 5) -> List[Dict[str, str]]:
-        """Generate flashcards from text"""
-        try:
-            # Split text into sections
-            sections = self._split_text(text, max_length=512)
-            cards = []
-            
-            for section in sections[:num_cards]:
-                # Generate a question from the section
-                question = self.qa_model(
-                    question="What is the main concept discussed in this text?",
-                    context=section
-                )
-                
-                # Use the answer as the basis for a flashcard
-                cards.append({
-                    "question": f"Explain the concept of {question['answer']}",
-                    "answer": section
-                })
-            
-            return cards
-        except Exception as e:
-            raise Exception(f"Error generating flashcards: {str(e)}")
-
-    def generate_quiz(self, text: str, num_questions: int = 5) -> List[Dict]:
-        """Generate quiz questions from text"""
-        try:
-            # Split text into sections
-            sections = self._split_text(text, max_length=512)
-            questions = []
-            
-            for section in sections[:num_questions]:
-                # Generate a question from the section
-                qa_result = self.qa_model(
-                    question="What is a key fact from this text?",
-                    context=section
-                )
-                
-                # Create a multiple choice question
-                question = {
-                    "question": f"What is {qa_result['answer']}?",
-                    "options": [
-                        section,  # Correct answer
-                        f"Not {section}",  # Simple incorrect option
-                        "None of the above",  # Standard option
-                        "All of the above"  # Standard option
-                    ],
-                    "correct_answer": 0  # Index of correct answer
+    async def generate_summary(self, text: str, max_length: int = 130) -> str:
+        """Generate a concise summary of the given text"""
+        chunks = self._split_text(text, max_length=2000)
+        summaries = []
+        
+        for chunk in chunks:
+            messages: List[Message] = [
+                {
+                    "role": "system",
+                    "content": "You are a helpful AI that creates concise summaries."
+                },
+                {
+                    "role": "user",
+                    "content": f"Please summarize this text in about {max_length} words: {chunk}"
                 }
-                
-                questions.append(question)
-            
-            return questions
-        except Exception as e:
-            raise Exception(f"Error generating quiz: {str(e)}")
+            ]
+            summary = await self._make_request(messages, temperature=0.3)
+            summaries.append(summary)
+        
+        return " ".join(summaries)
 
-    def answer_question(self, context: str, question: str) -> str:
-        """Answer a specific question about the text"""
+    async def generate_flashcards(
+        self,
+        text: str,
+        num_cards: int = 5
+    ) -> List[FlashCard]:
+        """Generate educational flashcards from text"""
+        messages: List[Message] = [
+            {
+                "role": "system",
+                "content": "Create educational flashcards. Return a JSON array with 'question' and 'answer' fields."
+            },
+            {
+                "role": "user",
+                "content": f"Create {num_cards} flashcards from this text. Focus on key concepts: {text}"
+            }
+        ]
+        
+        response = await self._make_request(messages, temperature=0.7)
         try:
-            # Split context if it's too long
-            contexts = self._split_text(context, max_length=512)
-            best_answer = {"score": 0, "answer": ""}
-            
-            # Find the best answer across all context chunks
-            for ctx in contexts:
-                result = self.qa_model(question=question, context=ctx)
-                if result["score"] > best_answer["score"]:
-                    best_answer = result
-            
-            return best_answer["answer"]
-        except Exception as e:
-            raise Exception(f"Error answering question: {str(e)}")
+            cards = json.loads(response)
+            return [FlashCard(**card) for card in cards[:num_cards]]
+        except json.JSONDecodeError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error parsing AI response: {str(e)}"
+            )
 
-    def _split_text(self, text: str, max_length: int = 1024) -> List[str]:
-        """Split text into chunks of maximum length"""
-        # Split text into sentences
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        chunks = []
-        current_chunk = []
+    async def generate_quiz(
+        self,
+        text: str,
+        num_questions: int = 5
+    ) -> List[QuizQuestion]:
+        """Generate multiple-choice quiz questions"""
+        messages: List[Message] = [
+            {
+                "role": "system",
+                "content": "Create multiple-choice questions. Return a JSON array with 'question', 'options' (4 choices), and 'correct_answer' (0-3) fields."
+            },
+            {
+                "role": "user",
+                "content": f"Create {num_questions} multiple-choice questions from: {text}"
+            }
+        ]
+        
+        response = await self._make_request(messages, temperature=0.7)
+        try:
+            questions = json.loads(response)
+            return [QuizQuestion(**q) for q in questions[:num_questions]]
+        except json.JSONDecodeError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error parsing AI response: {str(e)}"
+            )
+
+    async def answer_question(self, context: str, question: str) -> str:
+        """Answer a specific question based on the context"""
+        messages: List[Message] = [
+            {
+                "role": "system",
+                "content": "You are a helpful AI that answers questions accurately based on the provided context."
+            },
+            {
+                "role": "user",
+                "content": f"Context: {context}\n\nQuestion: {question}"
+            }
+        ]
+        
+        return await self._make_request(messages, temperature=0.3)
+
+    def _split_text(self, text: str, max_length: int = 2000) -> List[str]:
+        """Split text into manageable chunks while preserving sentence boundaries"""
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        chunks: List[str] = []
+        current_chunk: List[str] = []
         current_length = 0
         
         for sentence in sentences:
             sentence_length = len(sentence.split())
-            if current_length + sentence_length > max_length:
-                # Save current chunk and start a new one
-                if current_chunk:
-                    chunks.append(" ".join(current_chunk))
+            if current_length + sentence_length > max_length and current_chunk:
+                chunks.append(" ".join(current_chunk))
                 current_chunk = [sentence]
                 current_length = sentence_length
             else:
                 current_chunk.append(sentence)
                 current_length += sentence_length
         
-        # Add the last chunk if it exists
         if current_chunk:
             chunks.append(" ".join(current_chunk))
         

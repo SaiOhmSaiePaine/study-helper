@@ -1,25 +1,14 @@
-# Study Helper - AI-Powered Learning Assistant
+# Study Helper
 
-An open-source study helper web application that helps students learn from their documents with AI-powered tools. Upload your PDF or EPUB files and use various study aids to enhance your learning experience.
+A powerful study assistant that helps you learn from PDF documents using AI. This application uses OpenRouter's free AI models to provide features like:
 
-## Features
+- Text extraction from PDFs
+- AI-powered note generation
+- Flashcard creation
+- Quiz generation
+- Question answering
 
-- **Document Viewer**: View PDF and EPUB files directly in the browser
-- **AI-Powered Notes**: Take Notion-style notes with AI assistance and slash commands
-- **Flashcards**: Generate and study with AI-created flashcards
-- **Quiz**: Practice with AI-generated multiple choice questions
-- **Export Options**: Save your study materials in PDF, DOCX, or CSV formats
-- **Privacy-Focused**: All AI processing uses only the uploaded document content
-- **Modern UI**: Clean, responsive interface with dark mode support
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18.0.0 or later
-- npm 9.0.0 or later
-
-### Installation
+## Setup
 
 1. Clone the repository:
 ```bash
@@ -27,34 +16,106 @@ git clone https://github.com/yourusername/study-helper.git
 cd study-helper
 ```
 
-2. Install dependencies:
+2. Install frontend dependencies:
 ```bash
 npm install
 ```
 
-3. Start the development server:
+3. Install backend dependencies:
+```bash
+cd api
+python -m venv venv
+source venv/bin/activate  # On Windows: .\venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+4. Get your OpenRouter API key:
+- Visit [OpenRouter](https://openrouter.ai/)
+- Sign up for a free account
+- Get your API key from the dashboard
+
+5. Create a `.env` file in the `api` directory:
+```bash
+PORT=8000
+HOST=localhost
+DEBUG=True
+```
+
+## Running the Application
+
+1. Start the backend server:
+```bash
+cd api
+source venv/bin/activate  # On Windows: .\venv\Scripts\activate
+python run.py
+```
+
+2. Start the frontend development server:
 ```bash
 npm run dev
 ```
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+3. Visit http://localhost:3000 in your browser
 
-## Usage
+## Using the API
 
-1. Upload a PDF or EPUB document using the file upload area on the left side
-2. Use the tabs on the right to access different study tools:
-   - **Notes**: Take AI-assisted notes with Notion-style editing
-   - **Flashcards**: Generate and study with flip cards
-   - **Quiz**: Test your knowledge with multiple choice questions
-3. Export your study materials in your preferred format
+The application requires an OpenRouter API key for AI features. You need to include your API key in the request headers:
+
+```typescript
+const response = await fetch('http://localhost:8000/api/generate-notes', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'your-openrouter-api-key'
+  },
+  body: JSON.stringify({
+    text: 'Your text here'
+  })
+});
+```
+
+## Features
+
+### 1. PDF Processing
+- Upload PDF documents
+- Extract text content
+- Process multiple pages
+
+### 2. AI-Powered Notes
+- Generate concise summaries
+- Extract key points
+- Create structured notes
+
+### 3. Flashcards
+- Automatically generate question-answer pairs
+- Focus on key concepts
+- Review important information
+
+### 4. Quiz Generation
+- Create multiple-choice questions
+- Test understanding
+- Immediate feedback
+
+### 5. Question Answering
+- Ask specific questions about the content
+- Get AI-powered answers
+- Deep understanding of the material
+
+## API Endpoints
+
+- `POST /api/process-document`: Upload and process PDF files
+- `POST /api/generate-notes`: Generate AI-powered notes
+- `POST /api/generate-flashcards`: Create flashcards
+- `POST /api/generate-quiz`: Generate quiz questions
+- `POST /api/ask-question`: Answer specific questions
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgments
 

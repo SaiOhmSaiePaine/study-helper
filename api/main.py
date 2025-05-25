@@ -1,91 +1,132 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, constr
 from typing import List, Optional
 import fitz  # PyMuPDF
-from utils.ai_processor import AIProcessor
+from utils.ai_processor import AIProcessor, FlashCard, QuizQuestion
 
-app = FastAPI()
+# Initialize FastAPI app
+app = FastAPI(
+    title="Study Helper API",
+    description="AI-powered study assistant API",
+    version="1.0.0"
+)
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3005",
+        "https://study-helper.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize AI processor
-ai_processor = AIProcessor()
-
-class QuestionAnswer(BaseModel):
-    question: str
-    options: List[str]
-    correct_answer: int
-
-class FlashCard(BaseModel):
-    question: str
-    answer: str
-
+# Request/Response Models
 class TextRequest(BaseModel):
-    text: str
+    text: constr(min_length=1, max_length=10000) = Field(..., description="The text to process")
 
 class QuestionRequest(BaseModel):
-    text: str
-    question: str
+    text: constr(min_length=1, max_length=10000) = Field(..., description="The context text")
+    question: constr(min_length=1, max_length=500) = Field(..., description="The question to answer")
 
-def extract_text_from_pdf(file: UploadFile) -> str:
+class SummaryResponse(BaseModel):
+    summary: str = Field(..., description="Generated summary")
+
+class AnswerResponse(BaseModel):
+    answer: str = Field(..., description="Generated answer")
+
+# Dependencies
+async def get_api_key(x_api_key: str = Header(..., description="OpenRouter API key")) -> str:
+    """Validate and return the API key"""
+    if not x_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="API key is required"
+        )
+    return x_api_key
+
+def get_ai_processor(api_key: str = Depends(get_api_key)) -> AIProcessor:
+    """Create and return an AIProcessor instance"""
+    return AIProcessor(api_key=api_key)
+
+# Error Handlers
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
+
+# API Endpoints
+@app.post("/api/process-document", response_model=TextRequest)
+async def process_document(file: UploadFile = File(...)):
+    """Extract text from uploaded document"""
+    if not file.content_type == "application/pdf":
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF files are supported"
+        )
+    
     try:
         pdf_document = fitz.open(stream=file.file.read(), filetype="pdf")
         text = ""
         for page in pdf_document:
             text += page.get_text()
-        return text
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error processing PDF: {str(e)}")
-
-@app.post("/api/process-document")
-async def process_document(file: UploadFile = File(...)):
-    """Extract text from uploaded document"""
-    if file.content_type == "application/pdf":
-        text = extract_text_from_pdf(file)
         return {"text": text}
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported file type")
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error processing PDF: {str(e)}"
+        )
 
-@app.post("/api/generate-notes")
-async def generate_notes(request: TextRequest):
+@app.post("/api/generate-notes", response_model=SummaryResponse)
+async def generate_notes(
+    request: TextRequest,
+    ai_processor: AIProcessor = Depends(get_ai_processor)
+):
     """Generate AI-powered notes from document text"""
-    try:
-        summary = ai_processor.generate_summary(request.text)
-        return {"summary": summary}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    summary = await ai_processor.generate_summary(request.text)
+    return {"summary": summary}
 
-@app.post("/api/generate-flashcards")
-async def generate_flashcards(request: TextRequest, num_cards: int = 5) -> List[FlashCard]:
+@app.post("/api/generate-flashcards", response_model=List[FlashCard])
+async def generate_flashcards(
+    request: TextRequest,
+    num_cards: Optional[int] = 5,
+    ai_processor: AIProcessor = Depends(get_ai_processor)
+):
     """Generate flashcards from document text"""
-    try:
-        cards = ai_processor.generate_flashcards(request.text, num_cards)
-        return [FlashCard(**card) for card in cards]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    cards = await ai_processor.generate_flashcards(request.text, num_cards)
+    return cards
 
-@app.post("/api/generate-quiz")
-async def generate_quiz(request: TextRequest, num_questions: int = 5) -> List[QuestionAnswer]:
+@app.post("/api/generate-quiz", response_model=List[QuizQuestion])
+async def generate_quiz(
+    request: TextRequest,
+    num_questions: Optional[int] = 5,
+    ai_processor: AIProcessor = Depends(get_ai_processor)
+):
     """Generate quiz questions from document text"""
-    try:
-        questions = ai_processor.generate_quiz(request.text, num_questions)
-        return [QuestionAnswer(**question) for question in questions]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    questions = await ai_processor.generate_quiz(request.text, num_questions)
+    return questions
 
-@app.post("/api/ask-question")
-async def ask_question(request: QuestionRequest):
+@app.post("/api/ask-question", response_model=AnswerResponse)
+async def ask_question(
+    request: QuestionRequest,
+    ai_processor: AIProcessor = Depends(get_ai_processor)
+):
     """Answer a specific question about the document"""
-    try:
-        answer = ai_processor.answer_question(request.text, request.question)
-        return {"answer": answer}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) 
+    answer = await ai_processor.answer_question(request.text, request.question)
+    return {"answer": answer} 
+
+# hi
