@@ -4,9 +4,12 @@ import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 
-// Initialize PDF.js worker only on client side
+// Initialize PDF.js worker
 if (typeof window !== 'undefined') {
-  pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.js',
+    import.meta.url,
+  ).toString();
 }
 
 interface PDFViewerProps {
@@ -16,7 +19,7 @@ interface PDFViewerProps {
 
 type PDFDocumentLoadSuccess = {
   numPages: number;
-  getPage: (pageNumber: number) => Promise<any>;
+  _transport: any; // PDF document transport
 };
 
 const ZOOM_STEP = 0.1;
@@ -29,11 +32,11 @@ export default function PDFViewer({ file, onContentExtracted }: PDFViewerProps) 
   const [scale, setScale] = useState(INITIAL_SCALE);
   const [error, setError] = useState<string | null>(null);
 
-  const handleDocumentLoadSuccess = useCallback(async ({ numPages, getPage }: PDFDocumentLoadSuccess) => {
+  const handleDocumentLoadSuccess = useCallback(async ({ numPages, _transport }: PDFDocumentLoadSuccess) => {
     setNumPages(numPages);
     try {
       // Extract text from the first page as a sample
-      const page = await getPage(1);
+      const page = await _transport.getPage(1);
       const textContent = await page.getTextContent();
       const text = textContent.items.map((item: any) => item.str).join(' ');
       onContentExtracted(text);

@@ -1,14 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  webpack: (config, { isServer }) => {
-    // Disable canvas in server-side rendering
-    if (isServer) {
-      config.resolve.alias.canvas = false;
-    }
-
-    // Handle PDF.js worker
-    config.resolve.alias['pdfjs-dist'] = 'pdfjs-dist/legacy/build/pdf';
-
+  webpack: (config) => {
+    config.resolve.alias.canvas = false;
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
+      path: false,
+      encoding: false,
+    };
     return config;
   },
 };
